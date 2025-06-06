@@ -9,7 +9,7 @@ on:
 
 env:
   AWS_REGION: us-west-1
-  ECR_REPOSITORY: ml-model-repo
+  ECR_REPOSITORY: aws-mlops-repo
   S3_BUCKET: ${{ secrets.S3_BUCKET }}
   SAGEMAKER_ROLE_ARN: ${{ secrets.SAGEMAKER_ROLE_ARN }}
   LAMBDA_FUNCTION_NAME: deploy-ml-model
