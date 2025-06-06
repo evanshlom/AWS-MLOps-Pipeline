@@ -3,7 +3,7 @@ import json
 import argparse
 import time
 
-def test_endpoint(endpoint_name, region='us-west-1'):
+def test_endpoint(endpoint_name, region='us-east-1'):
     """Test SageMaker endpoint with sample data"""
     
     # Initialize SageMaker runtime client
@@ -51,7 +51,7 @@ def test_endpoint(endpoint_name, region='us-west-1'):
         print(f"Error testing endpoint: {str(e)}")
         return False
 
-def wait_for_endpoint(endpoint_name, region='us-west-1', max_wait=600):
+def wait_for_endpoint(endpoint_name, region='us-east-1', max_wait=600):
     """Wait for endpoint to be in service"""
     sagemaker = boto3.client('sagemaker', region_name=region)
     
@@ -82,7 +82,7 @@ def wait_for_endpoint(endpoint_name, region='us-west-1', max_wait=600):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Test SageMaker endpoint')
     parser.add_argument('--endpoint-name', default='ml-model-endpoint', help='Endpoint name')
-    parser.add_argument('--region', default='us-west-1', help='AWS region')
+    parser.add_argument('--region', default='us-east-1', help='AWS region')
     parser.add_argument('--wait', action='store_true', help='Wait for endpoint to be ready')
     
     args = parser.parse_args()
