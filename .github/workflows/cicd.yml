@@ -73,12 +73,6 @@ jobs:
         # Get model artifacts path
         MODEL_ARTIFACTS=$(aws sagemaker describe-training-job --training-job-name $JOB_NAME --query 'ModelArtifacts.S3ModelArtifacts' --output text)
         echo "MODEL_ARTIFACTS=$MODEL_ARTIFACTS" >> $GITHUB_ENV
-    
-    # - name: Check training job failure reason
-    #   if: failure()
-    #   run: |
-    #     JOB_NAME=$(aws sagemaker list-training-jobs --query 'TrainingJobSummaries[0].TrainingJobName' --output text)
-    #     aws sagemaker describe-training-job --training-job-name $JOB_NAME --query 'FailureReason' --output text
 
     - name: Package Lambda function
       run: |
@@ -96,11 +90,17 @@ jobs:
             --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
             --zip-file fileb://lambda-deployment.zip
           
+          # Wait for code update to complete
+          aws lambda wait function-updated --function-name ${{ env.LAMBDA_FUNCTION_NAME }}
+          
           # Update environment variables
           aws lambda update-function-configuration \
             --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
             --environment Variables="{SAGEMAKER_ROLE_ARN=${{ env.SAGEMAKER_ROLE_ARN }},ECR_IMAGE_URI=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }},MODEL_ARTIFACTS_S3_PATH=${{ env.MODEL_ARTIFACTS }},ENDPOINT_NAME=${{ env.ENDPOINT_NAME }}}" \
             --timeout 300
+          
+          # Wait for configuration update to complete
+          aws lambda wait function-updated --function-name ${{ env.LAMBDA_FUNCTION_NAME }}
         else
           echo "Creating new Lambda function..."
           aws lambda create-function \
@@ -111,13 +111,13 @@ jobs:
             --zip-file fileb://lambda-deployment.zip \
             --timeout 300 \
             --environment Variables="{SAGEMAKER_ROLE_ARN=${{ env.SAGEMAKER_ROLE_ARN }},ECR_IMAGE_URI=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }},MODEL_ARTIFACTS_S3_PATH=${{ env.MODEL_ARTIFACTS }},ENDPOINT_NAME=${{ env.ENDPOINT_NAME }}}"
+          
+          # Wait for creation to complete
+          aws lambda wait function-active --function-name ${{ env.LAMBDA_FUNCTION_NAME }}
         fi
     
     - name: Invoke Lambda to deploy model
       run: |
-        # Wait for Lambda to be ready
-        sleep 10
-        
         # Invoke Lambda function
         aws lambda invoke \
           --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
