@@ -48,7 +48,7 @@ def test_endpoint(endpoint_name, region='us-east-1'):
         return True
         
     except Exception as e:
-        print(f"Error testing endpoint: {str(e)}") 
+        print(f"Error testing endpoint: {str(e)}")
         return False
 
 def wait_for_endpoint(endpoint_name, region='us-east-1', max_wait=600):
