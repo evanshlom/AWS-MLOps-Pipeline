@@ -55,7 +55,7 @@ jobs:
           --algorithm-specification \
             TrainingImage=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }},TrainingInputMode=File \
           --role-arn ${{ env.SAGEMAKER_ROLE_ARN }} \
-          --output-data-config S3OutputPath=s3://${{ env.S3_BUCKET }}/aws-mlops/model-artifacts \
+          --output-data-config S3OutputPath=s3://${{ env.S3_BUCKET }}/aws-mlops/model-artifacts,S3Region=us-east-1 \
           --resource-config InstanceType=ml.m4.xlarge,InstanceCount=1,VolumeSizeInGB=10 \
           --stopping-condition MaxRuntimeInSeconds=3600
         
@@ -74,11 +74,11 @@ jobs:
         MODEL_ARTIFACTS=$(aws sagemaker describe-training-job --training-job-name $JOB_NAME --query 'ModelArtifacts.S3ModelArtifacts' --output text)
         echo "MODEL_ARTIFACTS=$MODEL_ARTIFACTS" >> $GITHUB_ENV
     
-    - name: Check training job failure reason
-      if: failure()
-      run: |
-        JOB_NAME=$(aws sagemaker list-training-jobs --query 'TrainingJobSummaries[0].TrainingJobName' --output text)
-        aws sagemaker describe-training-job --training-job-name $JOB_NAME --query 'FailureReason' --output text
+    # - name: Check training job failure reason
+    #   if: failure()
+    #   run: |
+    #     JOB_NAME=$(aws sagemaker list-training-jobs --query 'TrainingJobSummaries[0].TrainingJobName' --output text)
+    #     aws sagemaker describe-training-job --training-job-name $JOB_NAME --query 'FailureReason' --output text
 
     - name: Package Lambda function
       run: |
