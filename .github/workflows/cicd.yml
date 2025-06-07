@@ -85,6 +85,21 @@ jobs:
       run: |
         # Check if Lambda function exists
         if aws lambda get-function --function-name ${{ env.LAMBDA_FUNCTION_NAME }} 2>/dev/null; then
+          echo "Lambda function exists, checking state..."
+          
+          # Get current state
+          STATE=$(aws lambda get-function --function-name ${{ env.LAMBDA_FUNCTION_NAME }} --query 'Configuration.State' --output text)
+          UPDATE_STATUS=$(aws lambda get-function --function-name ${{ env.LAMBDA_FUNCTION_NAME }} --query 'Configuration.LastUpdateStatus' --output text)
+          
+          # If it's updating, wait for it to finish
+          if [ "$UPDATE_STATUS" = "InProgress" ]; then
+            echo "Lambda is updating, waiting..."
+            while [ "$UPDATE_STATUS" = "InProgress" ]; do
+              sleep 5
+              UPDATE_STATUS=$(aws lambda get-function --function-name ${{ env.LAMBDA_FUNCTION_NAME }} --query 'Configuration.LastUpdateStatus' --output text)
+            done
+          fi
+          
           echo "Updating existing Lambda function..."
           aws lambda update-function-code \
             --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
