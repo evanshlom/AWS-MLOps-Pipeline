@@ -14,5 +14,3 @@ COPY src/train.py /opt/ml/code/train.py
 COPY src/inference.py /opt/ml/code/inference.py
 
 WORKDIR /opt/ml/code
-
-ENTRYPOINT ["python", "train.py"]
