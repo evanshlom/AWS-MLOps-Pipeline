@@ -115,6 +115,9 @@ jobs:
     
     - name: Invoke Lambda to deploy model
       run: |
+        # Wait for Lambda to be ready
+        sleep 10
+        
         # Invoke Lambda function
         aws lambda invoke \
           --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
