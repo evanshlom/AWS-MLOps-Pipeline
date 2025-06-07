@@ -55,7 +55,7 @@ jobs:
           --algorithm-specification \
             TrainingImage=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }},TrainingInputMode=File \
           --role-arn ${{ env.SAGEMAKER_ROLE_ARN }} \
-          --output-data-config S3OutputPath=s3://${{ env.S3_BUCKET }}/model-artifacts \
+          --output-data-config S3OutputPath=s3://${{ env.S3_BUCKET }}/aws-mlops/model-artifacts \
           --resource-config InstanceType=ml.m4.xlarge,InstanceCount=1,VolumeSizeInGB=10 \
           --stopping-condition MaxRuntimeInSeconds=3600
         
