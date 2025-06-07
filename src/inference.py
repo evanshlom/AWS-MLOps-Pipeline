@@ -4,7 +4,7 @@ import numpy as np
 import os
 
 def model_fn(model_dir):
-    """Load model for inference"""
+    """Load model for inference""" 
     model = joblib.load(os.path.join(model_dir, "model.pkl"))
     return model
 
