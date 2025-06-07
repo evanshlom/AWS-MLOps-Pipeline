@@ -35,25 +35,36 @@ jobs:
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v1
     
-    - name: Build, tag, and push image to Amazon ECR
+    - name: Build, tag, and push training image to Amazon ECR
       env:
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         IMAGE_TAG: ${{ github.sha }}
       run: |
-        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-        echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+        # Build and push training image
+        docker build -f Dockerfile.train -t $ECR_REGISTRY/$ECR_REPOSITORY:train-$IMAGE_TAG .
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:train-$IMAGE_TAG
+        echo "training_image=$ECR_REGISTRY/$ECR_REPOSITORY:train-$IMAGE_TAG" >> $GITHUB_OUTPUT
+    
+    - name: Build, tag, and push inference image to Amazon ECR
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        # Build and push inference image
+        docker build -f Dockerfile.inference -t $ECR_REGISTRY/$ECR_REPOSITORY:inference-$IMAGE_TAG .
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:inference-$IMAGE_TAG
+        echo "inference_image=$ECR_REGISTRY/$ECR_REPOSITORY:inference-$IMAGE_TAG" >> $GITHUB_OUTPUT
     
     - name: Run training job in SageMaker
       run: |
         # Create unique job name
         JOB_NAME="ml-training-job-$(date +%Y%m%d-%H%M%S)"
         
-        # Start training job
+        # Start training job with training image
         aws sagemaker create-training-job \
           --training-job-name $JOB_NAME \
           --algorithm-specification \
-            TrainingImage=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }},TrainingInputMode=File \
+            TrainingImage=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:train-${{ github.sha }},TrainingInputMode=File \
           --role-arn ${{ env.SAGEMAKER_ROLE_ARN }} \
           --output-data-config S3OutputPath=s3://${{ env.S3_BUCKET }}/aws-mlops/model-artifacts \
           --resource-config InstanceType=ml.m4.xlarge,InstanceCount=1,VolumeSizeInGB=10 \
@@ -108,10 +119,10 @@ jobs:
           # Wait for code update to complete
           aws lambda wait function-updated --function-name ${{ env.LAMBDA_FUNCTION_NAME }}
           
-          # Update environment variables
+          # Update environment variables with INFERENCE image
           aws lambda update-function-configuration \
             --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
-            --environment Variables="{SAGEMAKER_ROLE_ARN=${{ env.SAGEMAKER_ROLE_ARN }},ECR_IMAGE_URI=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }},MODEL_ARTIFACTS_S3_PATH=${{ env.MODEL_ARTIFACTS }},ENDPOINT_NAME=${{ env.ENDPOINT_NAME }}}" \
+            --environment Variables="{SAGEMAKER_ROLE_ARN=${{ env.SAGEMAKER_ROLE_ARN }},ECR_IMAGE_URI=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:inference-${{ github.sha }},MODEL_ARTIFACTS_S3_PATH=${{ env.MODEL_ARTIFACTS }},ENDPOINT_NAME=${{ env.ENDPOINT_NAME }}}" \
             --timeout 300
           
           # Wait for configuration update to complete
@@ -125,7 +136,7 @@ jobs:
             --handler deploy_model.lambda_handler \
             --zip-file fileb://lambda-deployment.zip \
             --timeout 300 \
-            --environment Variables="{SAGEMAKER_ROLE_ARN=${{ env.SAGEMAKER_ROLE_ARN }},ECR_IMAGE_URI=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }},MODEL_ARTIFACTS_S3_PATH=${{ env.MODEL_ARTIFACTS }},ENDPOINT_NAME=${{ env.ENDPOINT_NAME }}}"
+            --environment Variables="{SAGEMAKER_ROLE_ARN=${{ env.SAGEMAKER_ROLE_ARN }},ECR_IMAGE_URI=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:inference-${{ github.sha }},MODEL_ARTIFACTS_S3_PATH=${{ env.MODEL_ARTIFACTS }},ENDPOINT_NAME=${{ env.ENDPOINT_NAME }}}"
           
           # Wait for creation to complete
           aws lambda wait function-active --function-name ${{ env.LAMBDA_FUNCTION_NAME }}

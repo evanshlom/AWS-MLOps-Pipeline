@@ -1,0 +1,6 @@
+FROM python:3.9-slim
+COPY src/requirements.txt /opt/ml/code/requirements.txt
+RUN pip install --no-cache-dir -r /opt/ml/code/requirements.txt
+COPY src/inference.py /opt/ml/code/inference.py
+WORKDIR /opt/ml/code
+# NO ENTRYPOINT - SageMaker handles inference serving
