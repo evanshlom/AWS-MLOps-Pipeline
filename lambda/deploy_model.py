@@ -27,7 +27,6 @@ def lambda_handler(event, context):
                 'ModelDataUrl': model_artifacts,
                 'Environment': {
                     'SAGEMAKER_PROGRAM': 'inference.py',
-                    'SAGEMAKER_SUBMIT_DIRECTORY': model_artifacts
                 }
             },
             ExecutionRoleArn=role_arn
