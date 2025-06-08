@@ -32,22 +32,30 @@ def train():
     accuracy = accuracy_score(y_test, predictions)
     print(f"Model accuracy: {accuracy}")
     
-    # Save model
-    model_path = "/opt/ml/model"
-    os.makedirs(model_path, exist_ok=True)
+    # Save model temporarily to /tmp (writable)
+    local_model_path = "/tmp/model.pkl"
+    os.makedirs(os.path.dirname(local_model_path), exist_ok=True)
+    joblib.dump(model, local_model_path)
+    print("Model saved temporarily")
     
-    joblib.dump(model, os.path.join(model_path, "model.pkl"))
-    print("Model saved successfully")
-    
-    # Save model metadata
+    # Save model metadata temporarily
     metadata = {
         "accuracy": float(accuracy),
         "features": list(iris.feature_names),
         "classes": list(iris.target_names)
     }
-    
-    with open(os.path.join(model_path, "metadata.json"), "w") as f:
+    local_metadata_path = "/tmp/metadata.json"
+    with open(local_metadata_path, "w") as f:
         json.dump(metadata, f)
+    print("Metadata saved temporarily")
+    
+    # Upload to S3 output path
+    s3 = boto3.client('s3')
+    bucket = os.environ['SM_OUTPUT_DATA_DIR'].split('/')[2]  # Extract bucket name
+    s3_prefix = os.environ['SM_OUTPUT_DATA_DIR'].replace(f"s3://{bucket}/", "")
+    s3.upload_file(local_model_path, bucket, f"{s3_prefix}model.pkl")
+    s3.upload_file(local_metadata_path, bucket, f"{s3_prefix}metadata.json")
+    print("Model and metadata uploaded to S3")
 
 if __name__ == "__main__":
     train()
