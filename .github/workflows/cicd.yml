@@ -61,17 +61,20 @@ jobs:
           --algorithm-specification \
             TrainingImage=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:train-${{ github.sha }},TrainingInputMode=File \
           --role-arn ${{ env.SAGEMAKER_ROLE_ARN }} \
+          --input-data-config '[{"ChannelName": "train", "DataSource": {"S3DataSource": {"S3DataType": "S3Prefix", "S3Uri": "s3://${{ env.S3_BUCKET }}/data/train", "S3DataDistributionType": "FullyReplicated"}}}]' \
           --output-data-config S3OutputPath=s3://${{ env.S3_BUCKET }}/aws-mlops/model-artifacts \
           --resource-config InstanceType=ml.m4.xlarge,InstanceCount=1,VolumeSizeInGB=10 \
-          --stopping-condition MaxRuntimeInSeconds=3600
+          --stopping-condition MaxRuntimeInSeconds=3600 \
+          --environment "S3_BUCKET=${{ env.S3_BUCKET }}"  # Added to pass the bucket name
         aws sagemaker wait training-job-completed-or-stopped --training-job-name $JOB_NAME
         STATUS=$(aws sagemaker describe-training-job --training-job-name $JOB_NAME --query 'TrainingJobStatus' --output text)
         if [ "$STATUS" != "Completed" ]; then
           echo "Training job failed with status: $STATUS"
+          aws sagemaker describe-training-job --training-job-name $JOB_NAME
           exit 1
         fi
         MODEL_ARTIFACTS=$(aws sagemaker describe-training-job --training-job-name $JOB_NAME --query 'ModelArtifacts.S3ModelArtifacts' --output text)
-        echo "MODEL_ARTIFACTS=$MODEL_ARTIFACTS" >> $GITHUB_ENV
+        echo "MODEL_ARTIFACTS=$MODEL_ARTIFACTS" >> $GITHUB_OUTPUT
 
     - name: Package Lambda function
       run: |

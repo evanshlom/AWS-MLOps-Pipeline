@@ -43,9 +43,10 @@ def train():
         json.dump(metadata, f)
     print("Metadata saved temporarily")
     
+    s3_output_path = "s3://" + os.environ.get('S3_BUCKET', 'your-bucket-name') + "/aws-mlops/model-artifacts/"
     s3 = boto3.client('s3')
-    bucket = os.environ['SM_OUTPUT_DATA_DIR'].split('/')[2]
-    s3_prefix = os.environ['SM_OUTPUT_DATA_DIR'].replace(f"s3://{bucket}/", "")
+    bucket = s3_output_path.split('/')[2]
+    s3_prefix = s3_output_path.replace(f"s3://{bucket}/", "")
     s3.upload_file(local_model_path, bucket, f"{s3_prefix}model.pkl")
     s3.upload_file(local_metadata_path, bucket, f"{s3_prefix}metadata.json")
     print("Model and metadata uploaded to S3")
