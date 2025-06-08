@@ -16,7 +16,7 @@ simple-ml-sagemaker/
     └── test_endpoint.py
 ```
 
-## Setup Steps
+## Setup Steps 
 
 ### 1. Create ECR Repository
 ```bash
