@@ -2,7 +2,7 @@ name: Deploy ML Model
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, alt ]
 
 jobs:
   deploy:
