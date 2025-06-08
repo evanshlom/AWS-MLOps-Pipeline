@@ -27,11 +27,6 @@ jobs:
           aws sts get-caller-identity
           echo "AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)" >> $GITHUB_ENV
 
-      - name: Create ECR repository if it doesn't exist
-        run: |
-          aws ecr describe-repositories --repository-names simple-ml --region ${{ env.AWS_REGION }} || \
-          aws ecr create-repository --repository-name simple-ml --region ${{ env.AWS_REGION }}
-
       - name: Login to ECR
         run: |
           aws ecr get-login-password --region ${{ env.AWS_REGION }} | \
@@ -48,50 +43,65 @@ jobs:
           python -c "
           import boto3
           import json
+          from datetime import datetime
           
           client = boto3.client('sagemaker')
+          timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
           
-          # Create model
+          # Create model with timestamp
+          model_name = f'simple-ml-model-{timestamp}'
           try:
               client.create_model(
-                  ModelName='simple-ml-model',
+                  ModelName=model_name,
                   PrimaryContainer={
                       'Image': '${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/simple-ml:latest',
                       'Mode': 'SingleModel'
                   },
                   ExecutionRoleArn='${{ secrets.SAGEMAKER_ROLE_ARN }}'
               )
-              print('Model created')
+              print(f'Model created: {model_name}')
           except Exception as e:
-              print(f'Model exists or error: {e}')
+              print(f'Model creation error: {e}')
+              exit(1)
           
-          # Create endpoint config
+          # Create endpoint config with timestamp
+          config_name = f'simple-ml-config-{timestamp}'
           try:
               client.create_endpoint_config(
-                  EndpointConfigName='simple-ml-config',
+                  EndpointConfigName=config_name,
                   ProductionVariants=[{
                       'InstanceType': 'ml.t2.medium',
                       'InitialInstanceCount': 1,
                       'InitialVariantWeight': 1,
-                      'ModelName': 'simple-ml-model',
+                      'ModelName': model_name,
                       'VariantName': 'primary'
                   }]
               )
-              print('Endpoint config created')
+              print(f'Endpoint config created: {config_name}')
           except Exception as e:
-              print(f'Config exists or error: {e}')
+              print(f'Config creation error: {e}')
+              exit(1)
           
-          # Create/update endpoint
+          # Create or update endpoint
+          endpoint_name = 'simple-ml-endpoint'
           try:
-              client.create_endpoint(
-                  EndpointName='simple-ml-endpoint',
-                  EndpointConfigName='simple-ml-config'
-              )
-              print('Endpoint created')
-          except:
+              # Try to describe endpoint first
+              response = client.describe_endpoint(EndpointName=endpoint_name)
+              # If it exists, update it
               client.update_endpoint(
-                  EndpointName='simple-ml-endpoint',
-                  EndpointConfigName='simple-ml-config'
+                  EndpointName=endpoint_name,
+                  EndpointConfigName=config_name
               )
-              print('Endpoint updated')
+              print(f'Endpoint updated with config: {config_name}')
+          except client.exceptions.ClientError as e:
+              if 'does not exist' in str(e):
+                  # Create new endpoint
+                  client.create_endpoint(
+                      EndpointName=endpoint_name,
+                      EndpointConfigName=config_name
+                  )
+                  print(f'Endpoint created: {endpoint_name}')
+              else:
+                  print(f'Endpoint error: {e}')
+                  exit(1)
           "
