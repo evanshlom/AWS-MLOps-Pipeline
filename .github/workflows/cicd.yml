@@ -1,141 +1,97 @@
-name: ML Pipeline - Train and Deploy
+name: Deploy ML Model
 
 on:
   push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-  workflow_dispatch:
+    branches: [ main, alt ]
 
 env:
   AWS_REGION: us-east-1
-  ECR_REPOSITORY: aws-mlops-repo
-  S3_BUCKET: ${{ secrets.S3_BUCKET }}
-  SAGEMAKER_ROLE_ARN: ${{ secrets.SAGEMAKER_ROLE_ARN }}
-  LAMBDA_FUNCTION_NAME: deploy-ml-model
-  ENDPOINT_NAME: ml-model-endpoint
 
 jobs:
-  build-train-deploy:
-    name: Build, Train, and Deploy Model
+  deploy:
     runs-on: ubuntu-latest
-    
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
-    
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v2
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ env.AWS_REGION }}
-    
-    - name: Login to Amazon ECR
-      id: login-ecr
-      uses: aws-actions/amazon-ecr-login@v1
-    
-    - name: Build, tag, and push training image to Amazon ECR
-      env:
-        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        IMAGE_TAG: ${{ github.sha }}
-      run: |
-        docker build --no-cache -f Dockerfile.train -t $ECR_REGISTRY/$ECR_REPOSITORY:train-$IMAGE_TAG .
-        docker push $ECR_REGISTRY/$ECR_REPOSITORY:train-$IMAGE_TAG
-        echo "training_image=$ECR_REGISTRY/$ECR_REPOSITORY:train-$IMAGE_TAG" >> $GITHUB_OUTPUT
-    
-    - name: Build, tag, and push inference image to Amazon ECR
-      env:
-        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        IMAGE_TAG: ${{ github.sha }}
-      run: |
-        docker build --no-cache -f Dockerfile.inference -t $ECR_REGISTRY/$ECR_REPOSITORY:inference-$IMAGE_TAG .
-        docker push $ECR_REGISTRY/$ECR_REPOSITORY:inference-$IMAGE_TAG
-        echo "inference_image=$ECR_REGISTRY/$ECR_REPOSITORY:inference-$IMAGE_TAG" >> $GITHUB_OUTPUT
-    
-    - name: Run training job in SageMaker
-      run: |
-        JOB_NAME="ml-training-job-$(date +%Y%m%d-%H%M%S)"
-        aws sagemaker create-training-job \
-          --training-job-name $JOB_NAME \
-          --algorithm-specification \
-            TrainingImage=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:train-${{ github.sha }},TrainingInputMode=File \
-          --role-arn ${{ env.SAGEMAKER_ROLE_ARN }} \
-          --input-data-config '[{"ChannelName": "train", "DataSource": {"S3DataSource": {"S3DataType": "S3Prefix", "S3Uri": "s3://${{ env.S3_BUCKET }}/data/train", "S3DataDistributionType": "FullyReplicated"}}}]' \
-          --output-data-config S3OutputPath=s3://${{ env.S3_BUCKET }}/aws-mlops/model-artifacts \
-          --resource-config InstanceType=ml.m4.xlarge,InstanceCount=1,VolumeSizeInGB=10 \
-          --stopping-condition MaxRuntimeInSeconds=3600 \
-          --environment "S3_BUCKET=${{ env.S3_BUCKET }}"  # Added to pass the bucket name
-        aws sagemaker wait training-job-completed-or-stopped --training-job-name $JOB_NAME
-        STATUS=$(aws sagemaker describe-training-job --training-job-name $JOB_NAME --query 'TrainingJobStatus' --output text)
-        if [ "$STATUS" != "Completed" ]; then
-          echo "Training job failed with status: $STATUS"
-          aws sagemaker describe-training-job --training-job-name $JOB_NAME
-          exit 1
-        fi
-        MODEL_ARTIFACTS=$(aws sagemaker describe-training-job --training-job-name $JOB_NAME --query 'ModelArtifacts.S3ModelArtifacts' --output text)
-        echo "MODEL_ARTIFACTS=$MODEL_ARTIFACTS" >> $GITHUB_OUTPUT
+      - name: Checkout
+        uses: actions/checkout@v3
 
-    - name: Package Lambda function
-      run: |
-        cd lambda
-        pip install -r requirements.txt -t .
-        zip -r ../lambda-deployment.zip .
-        cd ..
-    
-    - name: Deploy/Update Lambda function
-      run: |
-        if aws lambda get-function --function-name ${{ env.LAMBDA_FUNCTION_NAME }} 2>/dev/null; then
-          STATE=$(aws lambda get-function --function-name ${{ env.LAMBDA_FUNCTION_NAME }} --query 'Configuration.State' --output text)
-          UPDATE_STATUS=$(aws lambda get-function --function-name ${{ env.LAMBDA_FUNCTION_NAME }} --query 'Configuration.LastUpdateStatus' --output text)
-          if [ "$UPDATE_STATUS" = "InProgress" ]; then
-            while [ "$UPDATE_STATUS" = "InProgress" ]; do
-              sleep 5
-              UPDATE_STATUS=$(aws lambda get-function --function-name ${{ env.LAMBDA_FUNCTION_NAME }} --query 'Configuration.LastUpdateStatus' --output text)
-            done
-          fi
-          aws lambda update-function-code \
-            --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
-            --zip-file fileb://lambda-deployment.zip
-          aws lambda wait function-updated --function-name ${{ env.LAMBDA_FUNCTION_NAME }}
-          aws lambda update-function-configuration \
-            --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
-            --environment Variables="{SAGEMAKER_ROLE_ARN=${{ env.SAGEMAKER_ROLE_ARN }},ECR_IMAGE_URI=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:inference-${{ github.sha }},MODEL_ARTIFACTS_S3_PATH=${{ env.MODEL_ARTIFACTS }},ENDPOINT_NAME=${{ env.ENDPOINT_NAME }}}" \
-            --timeout 300
-          aws lambda wait function-updated --function-name ${{ env.LAMBDA_FUNCTION_NAME }}
-        else
-          aws lambda create-function \
-            --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
-            --runtime python3.9 \
-            --role ${{ secrets.LAMBDA_ROLE_ARN }} \
-            --handler deploy_model.lambda_handler \
-            --zip-file fileb://lambda-deployment.zip \
-            --timeout 300 \
-            --environment Variables="{SAGEMAKER_ROLE_ARN=${{ env.SAGEMAKER_ROLE_ARN }},ECR_IMAGE_URI=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:inference-${{ github.sha }},MODEL_ARTIFACTS_S3_PATH=${{ env.MODEL_ARTIFACTS }},ENDPOINT_NAME=${{ env.ENDPOINT_NAME }}}"
-          aws lambda wait function-active --function-name ${{ env.LAMBDA_FUNCTION_NAME }}
-        fi
-    
-    - name: Invoke Lambda to deploy model
-      run: |
-        aws lambda invoke \
-          --function-name ${{ env.LAMBDA_FUNCTION_NAME }} \
-          --payload '{}' \
-          response.json
-        cat response.json
-        if grep -q "error" response.json; then
-          echo "Lambda invocation failed"
-          exit 1
-        fi
-    
-    - name: Wait for endpoint and test
-      run: |
-        pip install boto3
-        python scripts/test_endpoint.py --endpoint-name ${{ env.ENDPOINT_NAME }} --region ${{ env.AWS_REGION }} --wait
-    
-    - name: Get endpoint URL
-      run: |
-        echo "SageMaker Endpoint Name: ${{ env.ENDPOINT_NAME }}"
-        echo "Region: ${{ env.AWS_REGION }}"
-        echo ""
-        echo "To invoke the endpoint, use:"
-        echo "aws sagemaker-runtime invoke-endpoint --endpoint-name ${{ env.ENDPOINT_NAME }} --body '{\"instances\": [[5.1, 3.5, 1.4, 0.2]]}' --content-type application/json output.json"
+      - name: Configure AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify AWS Configuration
+        run: |
+          echo "AWS Region: ${{ env.AWS_REGION }}"
+          aws sts get-caller-identity
+          echo "AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)" >> $GITHUB_ENV
+
+      - name: Create ECR repository if it doesn't exist
+        run: |
+          aws ecr describe-repositories --repository-names simple-ml --region ${{ env.AWS_REGION }} || \
+          aws ecr create-repository --repository-name simple-ml --region ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        run: |
+          aws ecr get-login-password --region ${{ env.AWS_REGION }} | \
+          docker login --username AWS --password-stdin ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+
+      - name: Build and Push Image
+        run: |
+          docker build -t simple-ml .
+          docker tag simple-ml:latest ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/simple-ml:latest
+          docker push ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/simple-ml:latest
+
+      - name: Deploy to SageMaker
+        run: |
+          python -c "
+          import boto3
+          import json
+          
+          client = boto3.client('sagemaker')
+          
+          # Create model
+          try:
+              client.create_model(
+                  ModelName='simple-ml-model',
+                  PrimaryContainer={
+                      'Image': '${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/simple-ml:latest',
+                      'Mode': 'SingleModel'
+                  },
+                  ExecutionRoleArn='${{ secrets.SAGEMAKER_ROLE_ARN }}'
+              )
+              print('Model created')
+          except Exception as e:
+              print(f'Model exists or error: {e}')
+          
+          # Create endpoint config
+          try:
+              client.create_endpoint_configuration(
+                  EndpointConfigName='simple-ml-config',
+                  ProductionVariants=[{
+                      'InstanceType': 'ml.t2.medium',
+                      'InitialInstanceCount': 1,
+                      'InitialVariantWeight': 1,
+                      'ModelName': 'simple-ml-model',
+                      'VariantName': 'primary'
+                  }]
+              )
+              print('Endpoint config created')
+          except Exception as e:
+              print(f'Config exists or error: {e}')
+          
+          # Create/update endpoint
+          try:
+              client.create_endpoint(
+                  EndpointName='simple-ml-endpoint',
+                  EndpointConfigName='simple-ml-config'
+              )
+              print('Endpoint created')
+          except:
+              client.update_endpoint(
+                  EndpointName='simple-ml-endpoint',
+                  EndpointConfigName='simple-ml-config'
+              )
+              print('Endpoint updated')
+          "
