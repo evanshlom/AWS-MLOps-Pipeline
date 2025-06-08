@@ -20,7 +20,27 @@ simple-ml-sagemaker/
 
 ### 1. Create ECR Repository
 ```bash
-aws ecr create-repository --repository-name simple-ml
+aws ecr create-repository --repository-name simple-ml --region us-east-1
+```
+
+Result:
+```bash
+{
+    "repository": {
+        "repositoryArn": "arn:aws:ecr:us-east-1:429099991557:repository/simple-ml",
+        "registryId": "429099991557",
+        "repositoryName": "simple-ml",
+        "repositoryUri": "429099991557.dkr.ecr.us-east-1.amazonaws.com/simple-ml",
+        "createdAt": "2025-06-07T20:07:22.366000-07:00",
+        "imageTagMutability": "MUTABLE",
+        "imageScanningConfiguration": {
+            "scanOnPush": false
+        },
+        "encryptionConfiguration": {
+            "encryptionType": "AES256"
+        }
+    }
+}
 ```
 
 ### 2. Create SageMaker Execution Role
