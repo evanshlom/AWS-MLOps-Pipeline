@@ -21,16 +21,22 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Verify AWS Configuration
+        run: |
+          echo "AWS Region: ${{ env.AWS_REGION }}"
+          aws sts get-caller-identity
+          echo "AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)" >> $GITHUB_ENV
+
       - name: Login to ECR
         run: |
           aws ecr get-login-password --region ${{ env.AWS_REGION }} | \
-          docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+          docker login --username AWS --password-stdin ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
 
       - name: Build and Push Image
         run: |
           docker build -t simple-ml .
-          docker tag simple-ml:latest ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/simple-ml:latest
-          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/simple-ml:latest
+          docker tag simple-ml:latest ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/simple-ml:latest
+          docker push ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/simple-ml:latest
 
       - name: Deploy to SageMaker
         run: |
@@ -45,10 +51,10 @@ jobs:
               client.create_model(
                   ModelName='simple-ml-model',
                   PrimaryContainer={
-                      'Image': '${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/simple-ml:latest',
+                      'Image': '${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/simple-ml:latest',
                       'Mode': 'SingleModel'
                   },
-                  ExecutionRoleArn='arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/SageMakerExecutionRole'
+                  ExecutionRoleArn='${{ secrets.SAGEMAKER_ROLE_ARN }}'
               )
               print('Model created')
           except Exception as e:
