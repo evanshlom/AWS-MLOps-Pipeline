@@ -1,33 +1,33 @@
+from flask import Flask, request, jsonify
 import joblib
-import json
 import numpy as np
 import os
 
-def model_fn(model_dir):
-    """Load model for inference""" 
-    model = joblib.load(os.path.join(model_dir, "model.pkl"))
-    return model
+app = Flask(__name__)
 
-def input_fn(request_body, content_type="application/json"):
-    """Parse input data"""
-    if content_type == "application/json":
-        input_data = json.loads(request_body)
-        return np.array(input_data["instances"])
-    else:
-        raise ValueError(f"Unsupported content type: {content_type}")
+# Load model at startup
+model_path = '/opt/ml/model/model.joblib'
+if os.path.exists(model_path):
+    model = joblib.load(model_path)
+else:
+    # Train model if not found (for local testing)
+    from train import train
+    train()
+    model = joblib.load(model_path)
 
-def predict_fn(input_data, model):
-    """Make predictions"""
-    predictions = model.predict(input_data)
-    probabilities = model.predict_proba(input_data)
-    return {
-        "predictions": predictions.tolist(),
-        "probabilities": probabilities.tolist()
-    }
+@app.route('/ping', methods=['GET'])
+def ping():
+    return jsonify({'status': 'healthy'})
 
-def output_fn(prediction, content_type="application/json"):
-    """Format output"""
-    if content_type == "application/json":
-        return json.dumps(prediction)
-    else:
-        raise ValueError(f"Unsupported content type: {content_type}")
+@app.route('/invocations', methods=['POST'])
+def predict():
+    try:
+        data = request.get_json()
+        features = np.array(data['instances'])
+        predictions = model.predict(features).tolist()
+        return jsonify({'predictions': predictions})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8080)
