@@ -67,7 +67,7 @@ jobs:
           
           # Create endpoint config
           try:
-              client.create_endpoint_configuration(
+              client.create_endpoint_config(
                   EndpointConfigName='simple-ml-config',
                   ProductionVariants=[{
                       'InstanceType': 'ml.t2.medium',
